@@ -33,6 +33,8 @@ jobs:
       
       - name: Build
         run: npm run build
+        env:
+          NODE_ENV: production
       
       - name: Copy 404.html for SPA routing
         run: |
@@ -40,8 +42,24 @@ jobs:
             cp public/404.html dist/404.html
           fi
       
+      - name: Verify build output
+        run: |
+          echo "Checking built index.html:"
+          head -10 dist/index.html
+          echo ""
+          echo "Checking dist directory contents:"
+          ls -la dist/
+      
       - name: Setup Pages
         uses: actions/configure-pages@v4
+      
+      - name: List files to be uploaded
+        run: |
+          echo "Files in dist directory:"
+          find dist -type f | sort
+          echo ""
+          echo "Contents of index.html:"
+          cat dist/index.html
       
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

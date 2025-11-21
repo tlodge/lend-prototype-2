@@ -7,7 +7,7 @@
     // Set base path for GitHub Pages
     // Repository name: lend-prototype-2
     // URL will be: https://tlodge.github.io/lend-prototype-2/
-    base: process.env.NODE_ENV === 'production' ? '/lend-prototype-2/' : '/',
+    base: '/lend-prototype-2/',
     plugins: [react()],
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
