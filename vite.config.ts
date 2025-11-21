@@ -5,9 +5,9 @@
 
   export default defineConfig({
     // Set base path for GitHub Pages
-    // If your repo is username.github.io, use '/'
-    // Otherwise, use '/repo-name/' (replace repo-name with your actual repo name)
-    base: process.env.NODE_ENV === 'production' ? '/prototype2/' : '/',
+    // Repository name: lend-prototype-2
+    // URL will be: https://tlodge.github.io/lend-prototype-2/
+    base: process.env.NODE_ENV === 'production' ? '/lend-prototype-2/' : '/',
     plugins: [react()],
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
