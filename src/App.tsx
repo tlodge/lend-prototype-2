@@ -1,5 +1,6 @@
-import { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { AnimatePresence } from "motion/react";
+import { broadcastViewChange, broadcastStorySelect, broadcastStoryReflection, broadcastMenuAction } from "./utils/iframeEvents";
 import { FloatingMenu } from "./components/FloatingMenu";
 import { WelcomeView } from "./components/WelcomeView";
 import { ConversationalSearchView } from "./components/ConversationalSearchView";
@@ -11,7 +12,7 @@ import { DisengagementView } from "./components/DisengagementView";
 import { CalmActivityView } from "./components/CalmActivityView";
 import { PlaylistExportView } from "./components/PlaylistExportView";
 import { Toaster } from "./components/ui/sonner";
-import { toast } from "sonner@2.0.3";
+import { toast } from "sonner";
 
 type ViewType =
   | "welcome"
@@ -134,9 +135,15 @@ export default function App() {
   const handleSelectStory = (story: Narrative) => {
     setCurrentlyPlayingStory(story);
     setCurrentView("playback");
+    broadcastStorySelect(story.id, story.title);
   };
 
   const handleReflection = (response: "helpful" | "unsure" | "distressing" | "dislike") => {
+    // Broadcast reflection event
+    if (currentlyPlayingStory) {
+      broadcastStoryReflection(currentlyPlayingStory.id, response);
+    }
+
     // Add to viewed stories (except for dislike)
     if (currentlyPlayingStory && response !== "dislike") {
       const newViewedStory: ViewedStory = {
@@ -263,6 +270,8 @@ export default function App() {
   };
 
   const handleMenuAction = (action: string) => {
+    broadcastMenuAction(action);
+    
     switch (action) {
       case "settings":
         toast("Settings would open here");
@@ -294,6 +303,15 @@ export default function App() {
   // Get recommended and other stories for library
   const recommendedStory = mockNarratives[0];
   const otherStories = mockNarratives.slice(1);
+
+  // Broadcast view changes to parent window
+  useEffect(() => {
+    broadcastViewChange(currentView, {
+      viewedStoriesCount: viewedStories.length,
+      currentlyPlayingStory: currentlyPlayingStory?.title,
+      voiceModeActive,
+    });
+  }, [currentView, viewedStories.length, currentlyPlayingStory?.title, voiceModeActive]);
 
   return (
     <div className="min-h-screen bg-background">
