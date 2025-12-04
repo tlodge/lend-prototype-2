@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { AnimatePresence } from "motion/react";
 import html2canvas from "html2canvas";
+import * as domtoimage from "dom-to-image";
 import { broadcastViewChange, broadcastStorySelect, broadcastStoryReflection, broadcastMenuAction, broadcastScreenshot } from "./utils/iframeEvents";
 import { FloatingMenu } from "./components/FloatingMenu";
 import { WelcomeView } from "./components/WelcomeView";
@@ -320,142 +321,100 @@ export default function App() {
       console.log('Prototype received message:', event.data);
       
       if (event.data && event.data.type === 'request-screenshot') {
-        console.log('Screenshot request received, capturing...');
+        console.log('Screenshot request received, capturing via Screen Capture API...');
         
         try {
-          const mainContainer = document.querySelector('main') || 
-                               document.querySelector('[role="main"]') ||
-                               document.body;
-          
-          // Step 1: Apply ALL computed styles as inline styles (not just colors)
-          // This ensures the page looks correct even without stylesheets
-          const allElements = mainContainer.querySelectorAll('*');
-          const styleBackups: Map<HTMLElement, string> = new Map();
-          
-          allElements.forEach((el) => {
-            const htmlEl = el as HTMLElement;
-            const computed = window.getComputedStyle(htmlEl);
-            
-            // Backup original inline styles
-            styleBackups.set(htmlEl, htmlEl.style.cssText);
-            
-            // Apply all important visual properties as inline styles
-            // This includes colors, spacing, layout, etc.
-            const importantProps = [
-              'color', 'backgroundColor', 'borderColor', 
-              'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor',
-              'outlineColor', 'textDecorationColor', 'fill', 'stroke',
-              'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
-              'margin', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
-              'border', 'borderTop', 'borderRight', 'borderBottom', 'borderLeft',
-              'borderRadius', 'fontSize', 'fontWeight', 'fontFamily',
-              'display', 'flexDirection', 'justifyContent', 'alignItems',
-              'width', 'height', 'minWidth', 'minHeight', 'maxWidth', 'maxHeight'
-            ];
-            
-            importantProps.forEach(prop => {
-              const value = computed.getPropertyValue(prop);
-              // Only set RGB values (browser converts oklab to rgb in computed styles)
-              if (value && 
-                  value !== 'none' && 
-                  value !== 'transparent' && 
-                  value !== 'auto' &&
-                  !value.includes('oklab') && 
-                  !value.includes('oklch')) {
-                htmlEl.style.setProperty(prop, value, 'important');
-              }
-            });
-          });
-          
-          // Step 2: Temporarily remove stylesheets that contain oklab
-          // Since we've applied all styles as inline, the page should still look correct
-          const removedStylesheets: { node: Node; parent: Node | null; nextSibling: Node | null }[] = [];
-          const allStylesheets = Array.from(document.styleSheets);
-          
-          allStylesheets.forEach((sheet) => {
-            try {
-              const rules = sheet.cssRules || sheet.rules;
-              if (rules) {
-                for (let i = 0; i < rules.length; i++) {
-                  const rule = rules[i] as CSSStyleRule;
-                  if (rule.style && (rule.style.cssText.includes('oklab') || rule.style.cssText.includes('oklch'))) {
-                    // Remove this stylesheet from DOM (html2canvas won't see it)
-                    if (sheet.ownerNode && sheet.ownerNode.parentNode) {
-                      const parent = sheet.ownerNode.parentNode;
-                      const nextSibling = sheet.ownerNode.nextSibling;
-                      removedStylesheets.push({
-                        node: sheet.ownerNode,
-                        parent: parent,
-                        nextSibling: nextSibling
-                      });
-                      parent.removeChild(sheet.ownerNode);
-                    }
-                    break;
-                  }
-                }
-              }
-            } catch (e) {
-              // Cross-origin stylesheets will throw, skip them
-            }
-          });
-          
-          try {
-            // Step 3: Capture - html2canvas won't see oklab stylesheets
-            const canvas = await html2canvas(mainContainer as HTMLElement, {
-              allowTaint: true,
-              useCORS: true,
-              logging: false,
-              scale: 1,
-              backgroundColor: '#ffffff',
-            });
-            
-            // Step 4: Restore removed stylesheets
-            removedStylesheets.forEach(({ node, parent, nextSibling }) => {
-              if (parent) {
-                if (nextSibling) {
-                  parent.insertBefore(node, nextSibling);
-                } else {
-                  parent.appendChild(node);
-                }
-              }
-            });
-            
-            // Step 5: Restore original inline styles
-            styleBackups.forEach((originalStyle, el) => {
-              el.style.cssText = originalStyle;
-            });
-            
-            // Convert to base64 and send back
-            const imageData = canvas.toDataURL('image/png');
-            console.log('Screenshot captured, sending response. Data length:', imageData.length);
-            broadcastScreenshot(imageData);
-          } catch (captureError) {
-            // Restore removed stylesheets even if capture fails
-            removedStylesheets.forEach(({ node, parent, nextSibling }) => {
-              if (parent) {
-                if (nextSibling) {
-                  parent.insertBefore(node, nextSibling);
-                } else {
-                  parent.appendChild(node);
-                }
-              }
-            });
-            
-            // Restore original inline styles
-            styleBackups.forEach((originalStyle, el) => {
-              el.style.cssText = originalStyle;
-            });
-            
-            throw captureError;
+          // Check if Screen Capture API is available
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+            throw new Error('Screen Capture API is not available in this browser');
           }
+          
+          // Show a brief instruction message (the browser prompt will appear next)
+          // Note: We can't customize the browser's native prompt, but we can prepare the user
+          
+          // Request screen capture with preferCurrentTab hint
+          // This tells the browser we prefer tab capture (if supported)
+          // Note: Browser may still show all options, but this hints at our preference
+          const options: any = {
+            video: {
+              width: { ideal: window.innerWidth },
+              height: { ideal: window.innerHeight }
+            },
+            audio: false
+          };
+          
+          // Add preferCurrentTab if the browser supports it (Chrome/Edge)
+          // This may pre-select the "Tab" option in the dialog
+          if ('preferCurrentTab' in navigator.mediaDevices.getDisplayMedia) {
+            options.preferCurrentTab = true;
+          }
+          
+          const stream = await navigator.mediaDevices.getDisplayMedia(options);
+          
+          // Create video element to capture frame
+          const video = document.createElement('video');
+          video.srcObject = stream;
+          video.autoplay = true;
+          video.playsInline = true;
+          
+          // Wait for video to be ready and play
+          await new Promise<void>((resolve, reject) => {
+            video.onloadedmetadata = () => {
+              video.play()
+                .then(() => {
+                  // Wait a moment for the frame to be ready
+                  setTimeout(() => resolve(), 100);
+                })
+                .catch(reject);
+            };
+            video.onerror = reject;
+          });
+          
+          // Create canvas and draw the current video frame
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+          
+          if (!ctx) {
+            throw new Error('Could not get canvas context');
+          }
+          
+          // Draw the current video frame to canvas
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          
+          // Stop all tracks to end the screen share
+          stream.getTracks().forEach(track => {
+            track.stop();
+            video.srcObject = null;
+          });
+          
+          // Convert canvas to image data
+          const imageData = canvas.toDataURL('image/png');
+          console.log('Screenshot captured via Screen Capture API. Data length:', imageData.length);
+          broadcastScreenshot(imageData);
+          
         } catch (error) {
           console.error('Error capturing screenshot:', error);
           
-          // Send helpful error message
+          // Provide helpful error message
+          const errorMessage = error instanceof Error ? error.message : String(error);
           if (window.self !== window.top) {
+            let userMessage = 'Unable to capture screenshot. ';
+            
+            if (errorMessage.includes('not available')) {
+              userMessage += 'Screen Capture API is not supported in this browser. Please use your browser\'s built-in screenshot tool.';
+            } else if (errorMessage.includes('Permission denied') || errorMessage.includes('NotAllowedError')) {
+              userMessage += 'Screen capture permission was denied. Please allow screen sharing when prompted.';
+            } else if (errorMessage.includes('NotReadableError') || errorMessage.includes('OverconstrainedError')) {
+              userMessage += 'Could not access screen. Please make sure no other application is using your screen.';
+            } else {
+              userMessage += `Error: ${errorMessage}. Please try again or use your browser's built-in screenshot tool.`;
+            }
+            
             window.parent.postMessage({
               type: 'screenshot-error',
-              error: 'html2canvas does not support oklab() color function. The prototype uses modern CSS colors that html2canvas cannot parse. Please use browser screenshot tools (Cmd+Shift+4 on Mac, Windows+Shift+S on Windows).',
+              error: userMessage,
               timestamp: Date.now(),
             }, '*');
           }
