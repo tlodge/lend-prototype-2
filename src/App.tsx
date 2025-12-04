@@ -327,34 +327,8 @@ export default function App() {
                                document.querySelector('[role="main"]') ||
                                document.body;
           
-          // Temporarily disable stylesheets that might contain oklab
-          // and apply all computed styles as inline styles
-          const disabledStylesheets: StyleSheet[] = [];
-          const allStylesheets = Array.from(document.styleSheets);
-          
-          allStylesheets.forEach((sheet) => {
-            try {
-              // Check if stylesheet contains oklab by trying to access rules
-              const rules = sheet.cssRules || sheet.rules;
-              if (rules) {
-                for (let i = 0; i < rules.length; i++) {
-                  const rule = rules[i] as CSSStyleRule;
-                  if (rule.style && (rule.style.cssText.includes('oklab') || rule.style.cssText.includes('oklch'))) {
-                    // Disable this stylesheet
-                    if (sheet.ownerNode) {
-                      (sheet.ownerNode as HTMLElement).setAttribute('media', 'none');
-                      disabledStylesheets.push(sheet);
-                    }
-                    break;
-                  }
-                }
-              }
-            } catch (e) {
-              // Cross-origin stylesheets will throw, skip them
-            }
-          });
-          
-          // Now apply all computed styles as inline styles
+          // Step 1: Apply ALL computed styles as inline styles (not just colors)
+          // This ensures the page looks correct even without stylesheets
           const allElements = mainContainer.querySelectorAll('*');
           const styleBackups: Map<HTMLElement, string> = new Map();
           
@@ -365,24 +339,68 @@ export default function App() {
             // Backup original inline styles
             styleBackups.set(htmlEl, htmlEl.style.cssText);
             
-            // Apply all important color properties as inline styles
-            const colorProps = ['color', 'backgroundColor', 'borderColor', 
-                              'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor',
-                              'outlineColor', 'textDecorationColor'];
+            // Apply all important visual properties as inline styles
+            // This includes colors, spacing, layout, etc.
+            const importantProps = [
+              'color', 'backgroundColor', 'borderColor', 
+              'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor',
+              'outlineColor', 'textDecorationColor', 'fill', 'stroke',
+              'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+              'margin', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
+              'border', 'borderTop', 'borderRight', 'borderBottom', 'borderLeft',
+              'borderRadius', 'fontSize', 'fontWeight', 'fontFamily',
+              'display', 'flexDirection', 'justifyContent', 'alignItems',
+              'width', 'height', 'minWidth', 'minHeight', 'maxWidth', 'maxHeight'
+            ];
             
-            colorProps.forEach(prop => {
+            importantProps.forEach(prop => {
               const value = computed.getPropertyValue(prop);
-              if (value && value !== 'none' && value !== 'transparent') {
+              // Only set RGB values (browser converts oklab to rgb in computed styles)
+              if (value && 
+                  value !== 'none' && 
+                  value !== 'transparent' && 
+                  value !== 'auto' &&
+                  !value.includes('oklab') && 
+                  !value.includes('oklch')) {
                 htmlEl.style.setProperty(prop, value, 'important');
               }
             });
           });
           
-          // Wait a moment for styles to settle
-          await new Promise(resolve => setTimeout(resolve, 50));
+          // Step 2: Temporarily remove stylesheets that contain oklab
+          // Since we've applied all styles as inline, the page should still look correct
+          const removedStylesheets: { node: Node; parent: Node | null; nextSibling: Node | null }[] = [];
+          const allStylesheets = Array.from(document.styleSheets);
+          
+          allStylesheets.forEach((sheet) => {
+            try {
+              const rules = sheet.cssRules || sheet.rules;
+              if (rules) {
+                for (let i = 0; i < rules.length; i++) {
+                  const rule = rules[i] as CSSStyleRule;
+                  if (rule.style && (rule.style.cssText.includes('oklab') || rule.style.cssText.includes('oklch'))) {
+                    // Remove this stylesheet from DOM (html2canvas won't see it)
+                    if (sheet.ownerNode && sheet.ownerNode.parentNode) {
+                      const parent = sheet.ownerNode.parentNode;
+                      const nextSibling = sheet.ownerNode.nextSibling;
+                      removedStylesheets.push({
+                        node: sheet.ownerNode,
+                        parent: parent,
+                        nextSibling: nextSibling
+                      });
+                      parent.removeChild(sheet.ownerNode);
+                    }
+                    break;
+                  }
+                }
+              }
+            } catch (e) {
+              // Cross-origin stylesheets will throw, skip them
+            }
+          });
           
           try {
-            // Capture with inline styles only (stylesheets disabled)
+            // Step 3: Capture - html2canvas won't see oklab stylesheets
             const canvas = await html2canvas(mainContainer as HTMLElement, {
               allowTaint: true,
               useCORS: true,
@@ -391,14 +409,18 @@ export default function App() {
               backgroundColor: '#ffffff',
             });
             
-            // Restore disabled stylesheets
-            disabledStylesheets.forEach((sheet) => {
-              if (sheet.ownerNode) {
-                (sheet.ownerNode as HTMLElement).removeAttribute('media');
+            // Step 4: Restore removed stylesheets
+            removedStylesheets.forEach(({ node, parent, nextSibling }) => {
+              if (parent) {
+                if (nextSibling) {
+                  parent.insertBefore(node, nextSibling);
+                } else {
+                  parent.appendChild(node);
+                }
               }
             });
             
-            // Restore original inline styles
+            // Step 5: Restore original inline styles
             styleBackups.forEach((originalStyle, el) => {
               el.style.cssText = originalStyle;
             });
@@ -408,10 +430,14 @@ export default function App() {
             console.log('Screenshot captured, sending response. Data length:', imageData.length);
             broadcastScreenshot(imageData);
           } catch (captureError) {
-            // Restore disabled stylesheets
-            disabledStylesheets.forEach((sheet) => {
-              if (sheet.ownerNode) {
-                (sheet.ownerNode as HTMLElement).removeAttribute('media');
+            // Restore removed stylesheets even if capture fails
+            removedStylesheets.forEach(({ node, parent, nextSibling }) => {
+              if (parent) {
+                if (nextSibling) {
+                  parent.insertBefore(node, nextSibling);
+                } else {
+                  parent.appendChild(node);
+                }
               }
             });
             
