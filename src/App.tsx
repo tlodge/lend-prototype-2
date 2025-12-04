@@ -329,25 +329,16 @@ export default function App() {
             throw new Error('Screen Capture API is not available in this browser');
           }
           
-          // Show a brief instruction message (the browser prompt will appear next)
-          // Note: We can't customize the browser's native prompt, but we can prepare the user
-          
-          // Request screen capture with preferCurrentTab hint
-          // This tells the browser we prefer tab capture (if supported)
-          // Note: Browser may still show all options, but this hints at our preference
+          // Request screen capture - browser will show its native prompt
+          // Use preferCurrentTab to hint at tab capture (supported in Chrome/Edge)
           const options: any = {
             video: {
               width: { ideal: window.innerWidth },
               height: { ideal: window.innerHeight }
             },
-            audio: false
+            audio: false,
+            preferCurrentTab: true
           };
-          
-          // Add preferCurrentTab if the browser supports it (Chrome/Edge)
-          // This may pre-select the "Tab" option in the dialog
-          if ('preferCurrentTab' in navigator.mediaDevices.getDisplayMedia) {
-            options.preferCurrentTab = true;
-          }
           
           const stream = await navigator.mediaDevices.getDisplayMedia(options);
           
@@ -356,18 +347,37 @@ export default function App() {
           video.srcObject = stream;
           video.autoplay = true;
           video.playsInline = true;
+          video.muted = true; // Mute to avoid any audio issues
           
           // Wait for video to be ready and play
           await new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              reject(new Error('Video load timeout'));
+            }, 5000);
+            
             video.onloadedmetadata = () => {
+              clearTimeout(timeout);
               video.play()
                 .then(() => {
                   // Wait a moment for the frame to be ready
-                  setTimeout(() => resolve(), 100);
+                  setTimeout(() => resolve(), 200);
                 })
                 .catch(reject);
             };
-            video.onerror = reject;
+            video.onerror = (error) => {
+              clearTimeout(timeout);
+              reject(error);
+            };
+            
+            // Also handle the case where metadata might already be loaded
+            if (video.readyState >= 1) {
+              clearTimeout(timeout);
+              video.play()
+                .then(() => {
+                  setTimeout(() => resolve(), 200);
+                })
+                .catch(reject);
+            }
           });
           
           // Create canvas and draw the current video frame
@@ -399,15 +409,25 @@ export default function App() {
           
           // Provide helpful error message
           const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorName = error instanceof Error ? error.name : 'Unknown';
+          
+          console.error('Screenshot error details:', {
+            message: errorMessage,
+            name: errorName,
+            stack: error instanceof Error ? error.stack : undefined
+          });
+          
           if (window.self !== window.top) {
             let userMessage = 'Unable to capture screenshot. ';
             
-            if (errorMessage.includes('not available')) {
+            if (errorMessage.includes('not available') || errorName === 'NotSupportedError') {
               userMessage += 'Screen Capture API is not supported in this browser. Please use your browser\'s built-in screenshot tool.';
-            } else if (errorMessage.includes('Permission denied') || errorMessage.includes('NotAllowedError')) {
+            } else if (errorMessage.includes('Permission denied') || errorName === 'NotAllowedError' || errorMessage.includes('NotAllowedError')) {
               userMessage += 'Screen capture permission was denied. Please allow screen sharing when prompted.';
-            } else if (errorMessage.includes('NotReadableError') || errorMessage.includes('OverconstrainedError')) {
+            } else if (errorMessage.includes('NotReadableError') || errorMessage.includes('OverconstrainedError') || errorName === 'NotReadableError') {
               userMessage += 'Could not access screen. Please make sure no other application is using your screen.';
+            } else if (errorMessage.includes('AbortError') || errorName === 'AbortError') {
+              userMessage += 'Screen capture was cancelled.';
             } else {
               userMessage += `Error: ${errorMessage}. Please try again or use your browser's built-in screenshot tool.`;
             }
@@ -415,6 +435,7 @@ export default function App() {
             window.parent.postMessage({
               type: 'screenshot-error',
               error: userMessage,
+              errorDetails: errorMessage,
               timestamp: Date.now(),
             }, '*');
           }
