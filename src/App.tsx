@@ -317,27 +317,132 @@ export default function App() {
   // Listen for screenshot requests from parent window
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
-      if (event.data.type === 'request-screenshot') {
+      console.log('Prototype received message:', event.data);
+      
+      if (event.data && event.data.type === 'request-screenshot') {
+        console.log('Screenshot request received, capturing...');
+        
         try {
-          // Capture the entire document body
-          const canvas = await html2canvas(document.body, {
-            allowTaint: true,
-            useCORS: true,
-            logging: false,
-            backgroundColor: '#ffffff',
+          const mainContainer = document.querySelector('main') || 
+                               document.querySelector('[role="main"]') ||
+                               document.body;
+          
+          // Temporarily disable stylesheets that might contain oklab
+          // and apply all computed styles as inline styles
+          const disabledStylesheets: StyleSheet[] = [];
+          const allStylesheets = Array.from(document.styleSheets);
+          
+          allStylesheets.forEach((sheet) => {
+            try {
+              // Check if stylesheet contains oklab by trying to access rules
+              const rules = sheet.cssRules || sheet.rules;
+              if (rules) {
+                for (let i = 0; i < rules.length; i++) {
+                  const rule = rules[i] as CSSStyleRule;
+                  if (rule.style && (rule.style.cssText.includes('oklab') || rule.style.cssText.includes('oklch'))) {
+                    // Disable this stylesheet
+                    if (sheet.ownerNode) {
+                      (sheet.ownerNode as HTMLElement).setAttribute('media', 'none');
+                      disabledStylesheets.push(sheet);
+                    }
+                    break;
+                  }
+                }
+              }
+            } catch (e) {
+              // Cross-origin stylesheets will throw, skip them
+            }
           });
           
-          // Convert to base64 and send back
-          const imageData = canvas.toDataURL('image/png');
-          broadcastScreenshot(imageData);
+          // Now apply all computed styles as inline styles
+          const allElements = mainContainer.querySelectorAll('*');
+          const styleBackups: Map<HTMLElement, string> = new Map();
+          
+          allElements.forEach((el) => {
+            const htmlEl = el as HTMLElement;
+            const computed = window.getComputedStyle(htmlEl);
+            
+            // Backup original inline styles
+            styleBackups.set(htmlEl, htmlEl.style.cssText);
+            
+            // Apply all important color properties as inline styles
+            const colorProps = ['color', 'backgroundColor', 'borderColor', 
+                              'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor',
+                              'outlineColor', 'textDecorationColor'];
+            
+            colorProps.forEach(prop => {
+              const value = computed.getPropertyValue(prop);
+              if (value && value !== 'none' && value !== 'transparent') {
+                htmlEl.style.setProperty(prop, value, 'important');
+              }
+            });
+          });
+          
+          // Wait a moment for styles to settle
+          await new Promise(resolve => setTimeout(resolve, 50));
+          
+          try {
+            // Capture with inline styles only (stylesheets disabled)
+            const canvas = await html2canvas(mainContainer as HTMLElement, {
+              allowTaint: true,
+              useCORS: true,
+              logging: false,
+              scale: 1,
+              backgroundColor: '#ffffff',
+            });
+            
+            // Restore disabled stylesheets
+            disabledStylesheets.forEach((sheet) => {
+              if (sheet.ownerNode) {
+                (sheet.ownerNode as HTMLElement).removeAttribute('media');
+              }
+            });
+            
+            // Restore original inline styles
+            styleBackups.forEach((originalStyle, el) => {
+              el.style.cssText = originalStyle;
+            });
+            
+            // Convert to base64 and send back
+            const imageData = canvas.toDataURL('image/png');
+            console.log('Screenshot captured, sending response. Data length:', imageData.length);
+            broadcastScreenshot(imageData);
+          } catch (captureError) {
+            // Restore disabled stylesheets
+            disabledStylesheets.forEach((sheet) => {
+              if (sheet.ownerNode) {
+                (sheet.ownerNode as HTMLElement).removeAttribute('media');
+              }
+            });
+            
+            // Restore original inline styles
+            styleBackups.forEach((originalStyle, el) => {
+              el.style.cssText = originalStyle;
+            });
+            
+            throw captureError;
+          }
         } catch (error) {
           console.error('Error capturing screenshot:', error);
+          
+          // Send helpful error message
+          if (window.self !== window.top) {
+            window.parent.postMessage({
+              type: 'screenshot-error',
+              error: 'html2canvas does not support oklab() color function. The prototype uses modern CSS colors that html2canvas cannot parse. Please use browser screenshot tools (Cmd+Shift+4 on Mac, Windows+Shift+S on Windows).',
+              timestamp: Date.now(),
+            }, '*');
+          }
         }
       }
     };
 
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    console.log('Screenshot listener added');
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      console.log('Screenshot listener removed');
+    };
   }, []);
 
   return (

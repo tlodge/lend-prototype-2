@@ -108,16 +108,18 @@ export function broadcastMenuAction(action: string) {
  * Broadcast a screenshot response
  */
 export function broadcastScreenshot(imageData: string) {
-  if (window.self !== window.top) {
-    try {
-      window.parent.postMessage({
-        type: 'screenshot-response',
-        imageData,
-        timestamp: Date.now(),
-      }, '*'); // Use specific origin in production
-    } catch (error) {
-      console.warn('Failed to send screenshot to parent window:', error);
-    }
+  try {
+    console.log('Broadcasting screenshot, in iframe:', window.self !== window.top);
+    // Always try to send, even if not in iframe (for testing)
+    const targetWindow = window.self !== window.top ? window.parent : window;
+    targetWindow.postMessage({
+      type: 'screenshot-response',
+      imageData,
+      timestamp: Date.now(),
+    }, '*'); // Use specific origin in production
+    console.log('Screenshot message sent');
+  } catch (error) {
+    console.warn('Failed to send screenshot to parent window:', error);
   }
 }
 
