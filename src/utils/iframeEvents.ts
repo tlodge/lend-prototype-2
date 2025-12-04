@@ -29,7 +29,13 @@ export interface MenuActionEvent {
   timestamp: number;
 }
 
-export type IframeEvent = ViewChangeEvent | StorySelectEvent | StoryReflectionEvent | MenuActionEvent;
+export interface ScreenshotResponseEvent {
+  type: 'screenshot-response';
+  imageData: string;
+  timestamp: number;
+}
+
+export type IframeEvent = ViewChangeEvent | StorySelectEvent | StoryReflectionEvent | MenuActionEvent | ScreenshotResponseEvent;
 
 /**
  * Broadcast an event to the parent window if we're in an iframe
@@ -96,5 +102,22 @@ export function broadcastMenuAction(action: string) {
     action,
     timestamp: Date.now(),
   });
+}
+
+/**
+ * Broadcast a screenshot response
+ */
+export function broadcastScreenshot(imageData: string) {
+  if (window.self !== window.top) {
+    try {
+      window.parent.postMessage({
+        type: 'screenshot-response',
+        imageData,
+        timestamp: Date.now(),
+      }, '*'); // Use specific origin in production
+    } catch (error) {
+      console.warn('Failed to send screenshot to parent window:', error);
+    }
+  }
 }
 

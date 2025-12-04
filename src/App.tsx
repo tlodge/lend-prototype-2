@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { AnimatePresence } from "motion/react";
-import { broadcastViewChange, broadcastStorySelect, broadcastStoryReflection, broadcastMenuAction } from "./utils/iframeEvents";
+import html2canvas from "html2canvas";
+import { broadcastViewChange, broadcastStorySelect, broadcastStoryReflection, broadcastMenuAction, broadcastScreenshot } from "./utils/iframeEvents";
 import { FloatingMenu } from "./components/FloatingMenu";
 import { WelcomeView } from "./components/WelcomeView";
 import { ConversationalSearchView } from "./components/ConversationalSearchView";
@@ -312,6 +313,32 @@ export default function App() {
       voiceModeActive,
     });
   }, [currentView, viewedStories.length, currentlyPlayingStory?.title, voiceModeActive]);
+
+  // Listen for screenshot requests from parent window
+  useEffect(() => {
+    const handleMessage = async (event: MessageEvent) => {
+      if (event.data.type === 'request-screenshot') {
+        try {
+          // Capture the entire document body
+          const canvas = await html2canvas(document.body, {
+            allowTaint: true,
+            useCORS: true,
+            logging: false,
+            backgroundColor: '#ffffff',
+          });
+          
+          // Convert to base64 and send back
+          const imageData = canvas.toDataURL('image/png');
+          broadcastScreenshot(imageData);
+        } catch (error) {
+          console.error('Error capturing screenshot:', error);
+        }
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">
