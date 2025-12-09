@@ -529,12 +529,12 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <FloatingMenu
+    {/*}  <FloatingMenu
         onSettings={() => handleMenuAction("settings")}
         onHistory={() => handleMenuAction("history")}
         onHelp={() => handleMenuAction("help")}
         onExit={() => handleMenuAction("exit")}
-      />
+      />*/}
 
       <Toaster position="top-center" />
     </div>
